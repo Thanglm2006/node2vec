@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+venv/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build / output
+dist/
+build/
+coverage/
+*.log
+
+# Generated data and model outputs
+*.npy
+*.npz
+*.pkl
+*.pickle
