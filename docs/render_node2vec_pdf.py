@@ -132,6 +132,8 @@ class PdfWriter:
     def block(self, kind, text):
         if kind in {"h1", "h2", "h3"}:
             size = {"h1": 20, "h2": 14.2, "h3": 11.2}[kind]
+            if kind == "h3":
+                self.ensure(1.05)
             if kind == "h2" and self.y < self.HEIGHT - self.TOP - 1.2:
                 self.ensure(0.75)
                 self.y -= 0.08

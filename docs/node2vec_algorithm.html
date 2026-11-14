@@ -62,6 +62,10 @@
     .flow .arrow { color: var(--blue); font-size: 15pt; font-weight: bold; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8pt; page-break-inside: avoid; }
     .card { border: 1px solid var(--line); padding: 8pt; }
+    .derivation { border: 1px solid #b8d4ec; background: #f8fbff; padding: 8pt 10pt; margin: 8pt 0; page-break-inside: avoid; }
+    .direction { border-collapse: collapse; margin: 7pt 0; }
+    .direction td { border: 1px solid var(--line); padding: 5pt 7pt; }
+    .direction td:first-child { font-weight: bold; color: var(--blue); width: 22%; }
     .small { color: var(--muted); font-size: 9pt; }
     .tag { display: inline-block; background: #dbeafe; color: #1e40af; padding: 2pt 5pt; margin-right: 3pt; font-size: 8.5pt; border-radius: 2pt; }
     .page-break { page-break-before: always; }
@@ -349,9 +353,47 @@ loss = (positive_loss + negative_loss).mean()</pre>
   <h3>9.2. Gradient của một positive pair</h3>
   <p>Với <code>s+ = u·v+</code> và <code>s<sub>k</sub>- = u·v<sub>k</sub>-</code>, đạo hàm theo các logit là:</p>
   <div class="formula"><strong>∂L/∂s+ = σ(s+) − 1</strong>&nbsp;&nbsp;&nbsp;&nbsp; <strong>∂L/∂s<sub>k</sub>- = σ(s<sub>k</sub>-)</strong></div>
+  <h3>9.2.1. Suy ra đạo hàm từng bước</h3>
+  <p>Đặt loss của một source cùng một positive context và <code>K</code> negative contexts là:</p>
+  <div class="derivation">
+    <div class="formula"><strong>L = −log σ(s+) − Σ<sub>k=1..K</sub> log σ(−s<sub>k</sub>-)</strong></div>
+    <p><strong>Bước 1: đạo hàm của sigmoid.</strong> Với <code>σ(x) = 1/(1+e<sup>−x</sup>)</code>:</p>
+    <div class="formula"><strong>σ'(x) = σ(x)(1−σ(x))</strong></div>
+    <p>Từ đó có hai đồng nhất thức tiện dùng:</p>
+    <div class="formula"><strong>d log σ(x)/dx = 1−σ(x)</strong>&nbsp;&nbsp;&nbsp;&nbsp; <strong>1−σ(−x) = σ(x)</strong></div>
+    <p><strong>Bước 2: đạo hàm theo positive logit.</strong></p>
+    <div class="formula"><strong>∂[−log σ(s+)]/∂s+ = −(1−σ(s+)) = σ(s+)−1</strong></div>
+    <p>Nếu positive score còn nhỏ, <code>σ(s+)−1</code> âm lớn về độ lớn, nên gradient descent sẽ làm score tăng.</p>
+    <p><strong>Bước 3: đạo hàm theo negative logit.</strong> Thành phần thứ <code>k</code> là <code>−log σ(−s<sub>k</sub>-)</code>. Quy tắc chain rule cho thêm đạo hàm của <code>−s<sub>k</sub>-</code>:</p>
+    <div class="formula"><strong>∂[−log σ(−s<sub>k</sub>-)]/∂s<sub>k</sub>- = 1−σ(−s<sub>k</sub>-) = σ(s<sub>k</sub>-)</strong></div>
+    <p>Vì vậy negative score có gradient dương. Gradient descent sẽ làm negative score giảm.</p>
+  </div>
+  <h3>9.2.2. Từ logit sang các vector embedding</h3>
+  <p>Logit là tích vô hướng:</p>
+  <div class="formula"><strong>s+ = u<sup>T</sup>v+</strong>&nbsp;&nbsp;&nbsp;&nbsp; <strong>s<sub>k</sub>- = u<sup>T</sup>v<sub>k</sub>-</strong></div>
+  <p>Vì <code>∂(u<sup>T</sup>v)/∂u = v</code> và <code>∂(u<sup>T</sup>v)/∂v = u</code>, áp dụng chain rule ta có:</p>
   <p>Suy ra gradient quan trọng:</p>
   <div class="formula"><strong>∂L/∂u = (σ(s+)−1)v+ + Σ<sub>k</sub> σ(s<sub>k</sub>-)v<sub>k</sub>-</strong></div>
   <div class="formula"><strong>∂L/∂v+ = (σ(s+)−1)u</strong>&nbsp;&nbsp;&nbsp;&nbsp; <strong>∂L/∂v<sub>k</sub>- = σ(s<sub>k</sub>-)u</strong></div>
+  <table class="direction">
+    <tr><td>Positive pair</td><td><code>σ(s+)−1 &lt; 0</code>. Khi trừ gradient, <code>u</code> và <code>v+</code> dịch theo hướng làm <code>u·v+</code> tăng.</td></tr>
+    <tr><td>Negative pair</td><td><code>σ(s<sub>k</sub>-) &gt; 0</code>. Khi trừ gradient, <code>u</code> và <code>v<sub>k</sub>-</code> dịch theo hướng làm <code>u·v<sub>k</sub>-</code> giảm.</td></tr>
+    <tr><td>Batch mean</td><td>Code gọi <code>.mean()</code>, nên tổng gradient của từng sample còn được chia theo số sample trong batch.</td></tr>
+  </table>
+  <h3>9.2.3. Ví dụ số một chiều</h3>
+  <p>Để nhìn rõ dấu của gradient, giả sử chỉ có một chiều, một positive và một negative:</p>
+  <pre>u = 0.5,    v+ = 0.8,    v- = -0.2
+s+ = u*v+ = 0.4
+s- = u*v- = -0.1
+σ(s+) ≈ 0.5987,    σ(s-) ≈ 0.4750</pre>
+  <table class="direction">
+    <tr><td>Positive logit</td><td><code>∂L/∂s+ = 0.5987−1 = −0.4013</code></td></tr>
+    <tr><td>Negative logit</td><td><code>∂L/∂s- = 0.4750</code></td></tr>
+    <tr><td>Source vector</td><td><code>∂L/∂u = (−0.4013)(0.8) + (0.4750)(−0.2) ≈ −0.4160</code></td></tr>
+    <tr><td>Positive vector</td><td><code>∂L/∂v+ = (−0.4013)(0.5) ≈ −0.2007</code></td></tr>
+    <tr><td>Negative vector</td><td><code>∂L/∂v- = (0.4750)(0.5) ≈ 0.2375</code></td></tr>
+  </table>
+  <p>Nếu minh họa bằng SGD với <code>η=0.1</code> thì <code>u</code> tăng từ <code>0.5</code> lên khoảng <code>0.5416</code>, <code>v+</code> tăng lên khoảng <code>0.8201</code>, còn <code>v-</code> giảm xuống khoảng <code>−0.2238</code>. Khi đó positive dot product tăng và negative dot product giảm. Code thực tế dùng Adam nên độ lớn bước cập nhật không đúng bằng ví dụ SGD này, nhưng hướng tác động vẫn như vậy.</p>
   <p>Trực giác:</p>
   <ul>
     <li>Source vector được kéo gần context dương.</li>
