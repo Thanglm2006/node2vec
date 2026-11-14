@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <title>Evaluation custom Node2Vec và Node2Vec gốc</title>
+  <style>
+    @page { size: A4; margin: 17mm 16mm 18mm; }
+    body { color:#1e293b; font-family:"DejaVu Sans","Noto Sans",Arial,sans-serif; font-size:10.2pt; line-height:1.48; }
+    h1,h2,h3 { color:#0f4c81; line-height:1.2; page-break-after:avoid; }
+    h1 { font-size:25pt; } h2 { font-size:16pt; border-bottom:2px solid #0f4c81; padding-bottom:4pt; margin-top:19pt; } h3 { font-size:12.2pt; margin-top:13pt; }
+    p { margin:5pt 0 7pt; } li { margin:2pt 0; }
+    code { font-family:"DejaVu Sans Mono",monospace; font-size:8.7pt; background:#eef2f7; padding:1pt 3pt; }
+    pre { background:#f8fafc; border:1px solid #cbd5e1; border-left:4px solid #6b9bc3; padding:7pt 9pt; white-space:pre-wrap; page-break-inside:avoid; font:8.4pt/1.38 "DejaVu Sans Mono",monospace; }
+    table { border-collapse:collapse; width:100%; margin:7pt 0 10pt; page-break-inside:avoid; } th { background:#0f4c81; color:#fff; text-align:left; } th,td { border:1px solid #cbd5e1; padding:5pt 6pt; vertical-align:top; } tr:nth-child(even) td { background:#f8fafc; }
+    .callout { border-left:4px solid #0f4c81; background:#eaf3fb; padding:7pt 10pt; margin:8pt 0; page-break-inside:avoid; }
+    .warning { border-left-color:#d97706; background:#fff7ed; } .success { border-left-color:#16a34a; background:#ecfdf3; }
+    .formula { background:#f1f5f9; border:1px solid #cbd5e1; text-align:center; padding:7pt; margin:7pt 0; page-break-inside:avoid; }
+    .flow { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:5pt; margin:10pt 0; page-break-inside:avoid; }
+    .box { border:1px solid #8bb3d5; background:#eaf3fb; padding:7pt 8pt; text-align:center; min-width:100pt; }
+    .arrow { color:#0f4c81; font-size:15pt; font-weight:bold; } .small { color:#475569; font-size:9pt; }
+  </style>
+</head>
+<body>
+  <h1>Evaluation: custom Node2Vec và Node2Vec gốc</h1>
+  <p>Quy trình chạy qua <code>main.py</code> và <code>test.py</code>, sử dụng cùng Karate Club graph và cùng bài toán phân loại node.</p>
+  <p>Tài liệu tập trung vào cách so sánh công bằng, dữ liệu đầu vào/đầu ra, metric và cách diễn giải kết quả.</p>
+  <div class="callout success"><strong>Kết luận của evaluation:</strong> embedding custom và embedding từ package <code>node2vec</code> đều được dùng làm feature cho cùng một Logistic Regression classifier trên cùng các train/test split.</div>
+
+  <h2>1. Mục tiêu đánh giá</h2>
+  <p>Node2Vec là phương pháp học biểu diễn không giám sát: trong lúc học embedding, model không dùng nhãn “Mr. Hi” hay “Officer”. Evaluation dùng nhãn chỉ sau khi embedding đã được tạo để kiểm tra embedding có chứa thông tin hữu ích cho một downstream task hay không.</p>
+  <div class="flow">
+    <div class="box"><strong>Karate Club graph</strong><br>34 nodes</div><div class="arrow">→</div>
+    <div class="box"><strong>2 embedding sets</strong><br>custom / original</div><div class="arrow">→</div>
+    <div class="box"><strong>Same splits</strong><br>stratified 30 lần</div><div class="arrow">→</div>
+    <div class="box"><strong>Same classifier</strong><br>Logistic Regression</div><div class="arrow">→</div>
+    <div class="box"><strong>Accuracy + F1</strong><br>mean ± std</div>
+  </div>
+  <p>Evaluation không so sánh trực tiếp từng tọa độ vector. Hai mô hình có thể tạo embedding tương đương nhưng bị xoay, phản chiếu hoặc đổi hệ trục. Thay vào đó, so sánh khả năng phục vụ cùng một nhiệm vụ phân loại.</p>
+
+  <h2>2. Chuẩn bị trong <code>main.py</code></h2>
+  <h3>2.1. Reproducibility và graph</h3>
+  <pre>seed = 42
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+
+G = nx.karate_club_graph()</n+print(G.number_of_nodes())
+print(G.number_of_edges())</pre>
+  <p>Code dùng seed <code>42</code> cho Python, NumPy và PyTorch. Graph là Zachary Karate Club của NetworkX, gồm 34 node và 78 edge. Nhãn câu lạc bộ đã nằm trong thuộc tính node nhưng chưa được dùng khi train embedding.</p>
+
+  <h3>2.2. Hyperparameter chung</h3>
+  <table>
+    <tr><th>Tham số</th><th>Giá trị</th><th>Vai trò</th></tr>
+    <tr><td>Embedding dimension</td><td><code>128</code></td><td>Số chiều mỗi node vector</td></tr>
+    <tr><td>Walks per node</td><td><code>10</code></td><td>Số random walk bắt đầu từ mỗi node</td></tr>
+    <tr><td>Walk length</td><td><code>80</code></td><td>Số bước walk theo cấu hình project</td></tr>
+    <tr><td>Context/window</td><td><code>5</code></td><td>Phạm vi context khi học Skip-gram</td></tr>
+    <tr><td><code>p</code>, <code>q</code></td><td><code>1.0</code>, <code>1.0</code></td><td>Random walk không bias return/in-out</td></tr>
+    <tr><td>Negative samples</td><td><code>5</code></td><td>Chỉ áp dụng rõ ràng trong custom trainer</td></tr>
+    <tr><td>Batch size</td><td><code>256</code></td><td>Kích thước batch custom</td></tr>
+    <tr><td>Epochs</td><td><code>1</code></td><td>Số vòng train trong lần chạy hiện tại</td></tr>
+    <tr><td>Learning rate</td><td><code>0.001</code></td><td>Learning rate cho Adam custom</td></tr>
+  </table>
+  <div class="callout warning"><strong>Lưu ý:</strong> cùng hyperparameter cấp cao không có nghĩa hai implementation lấy đúng cùng random walk hoặc dùng đúng cùng một optimizer nội bộ. So sánh ở đây là so sánh hai pipeline với cùng graph và cấu hình tương đương.</div>
+
+  <h2>3. Sinh embedding custom</h2>
+  <pre>node2vec = Node2Vec(
+    G=G, p=p, q=q,
+    dimension=embedding_dim,
+    walks_per_node=walks_per_node,
+    walk_length=walk_length,
+    context_size=context_size,
+)
+
+custom_embeddings = node2vec.fit(
+    num_negative=num_negative,
+    batch_size=256,
+    epochs=1,
+    lr=0.001,
+    device=device,
+)</pre>
+  <p><code>fit()</code> của custom implementation thực hiện toàn bộ pipeline:</p>
+  <ol>
+    <li>Tiền tính transition probabilities từ <code>p</code>, <code>q</code>.</li>
+    <li>Tạo <code>10 × |V|</code> random walks.</li>
+    <li>Tạo positive pairs từ các node trong walk.</li>
+    <li>Tạo 5 negative contexts cho mỗi positive pair theo tần suất node<sup>0.75</sup>.</li>
+    <li>Map node label sang integer ID và tạo <code>TensorDataset</code>.</li>
+    <li>Train hai bảng embedding bằng Skip-gram, negative-sampling loss và Adam.</li>
+    <li>Trả về <code>source_embedding.weight</code>.</li>
+  </ol>
+  <p>Trong kết quả trả về, dòng thứ <code>i</code> tương ứng với node thứ <code>i</code> trong <code>list(G.nodes())</code>.</p>
+
+  <h2>4. Sinh embedding từ package gốc</h2>
+  <pre>original_node2vec = OriginalNode2Vec(
+    graph=G,
+    dimensions=embedding_dim,
+    walk_length=walk_length,
+    num_walks=walks_per_node,
+    p=p,
+    q=q,
+    workers=1,
+    quiet=True,
+    seed=seed,
+)
+
+original_model = original_node2vec.fit(
+    window=context_size,
+    min_count=1,
+    batch_words=256,
+    epochs=1,
+    seed=seed,
+)
+
+original_embeddings = np.asarray([
+    original_model.wv.get_vector(str(node))
+    for node in G.nodes()
+])</pre>
+  <p>Package gốc tạo model Skip-gram thông qua stack của package <code>node2vec</code> và gensim. Code lấy vector bằng <code>original_model.wv.get_vector(str(node))</code>, rồi xếp theo đúng thứ tự <code>G.nodes()</code> để hai ma trận có cùng ý nghĩa theo hàng.</p>
+  <table>
+    <tr><th>Custom</th><th>Package gốc</th></tr>
+    <tr><td>Tự tạo walk, positive/negative samples và PyTorch model</td><td>Package tự quản lý walk và gensim training</td></tr>
+    <tr><td>Negative sampling cố định <code>num_negative=5</code></td><td>Negative sampling do gensim configuration mặc định/implementation đảm nhiệm</td></tr>
+    <tr><td>Output là source embedding table</td><td>Output lấy từ <code>model.wv</code></td></tr>
+    <tr><td>Mapping dùng node label trực tiếp trong <code>node2id</code></td><td>Vector được truy vấn bằng chuỗi <code>str(node)</code></td></tr>
+  </table>
+
+  <h2>5. Lưu kết quả và bảo toàn mapping</h2>
+  <pre>np.save("karate_embeddings_custom.npy", custom_embeddings)
+np.save("karate_embeddings_original.npy", original_embeddings)
+np.save("karate_node_ids.npy", np.asarray(list(G.nodes()), dtype=object))</pre>
+  <p>Ba file này có vai trò:</p>
+  <table>
+    <tr><th>File</th><th>Shape/kiểu</th><th>Ý nghĩa</th></tr>
+    <tr><td><code>karate_embeddings_custom.npy</code></td><td><code>(34, 128)</code></td><td>Embedding từ implementation custom</td></tr>
+    <tr><td><code>karate_embeddings_original.npy</code></td><td><code>(34, 128)</code></td><td>Embedding từ package gốc</td></tr>
+    <tr><td><code>karate_node_ids.npy</code></td><td><code>(34,)</code></td><td>Node label ứng với từng row embedding</td></tr>
+  </table>
+  <div class="callout">Lưu node IDs cùng embedding là cần thiết. Nếu thứ tự node bị thay đổi, classifier có thể nhận vector của node này nhưng nhãn của node khác, làm evaluation sai mà không nhất thiết phát sinh exception.</div>
+
+  <h2>6. Chuẩn bị nhãn trong <code>test.py</code></h2>
+  <pre>G = nx.karate_club_graph()
+node_list = list(G.nodes())
+node_ids = np.load("karate_node_ids.npy", allow_pickle=True).tolist()
+
+if node_ids != node_list:
+    raise ValueError("Embedding node IDs do not match the graph node order.")
+
+y = np.array([
+    0 if G.nodes[node]["club"] == "Mr. Hi" else 1
+    for node in node_list
+])</pre>
+  <p>Evaluation chuyển nhãn câu lạc bộ thành bài toán nhị phân:</p>
+  <table>
+    <tr><th>Club</th><th>Label</th></tr>
+    <tr><td><code>Mr. Hi</code></td><td>0</td></tr>
+    <tr><td>Club còn lại</td><td>1</td></tr>
+  </table>
+  <p>Đây là nhãn ground truth chỉ dùng trong bước downstream evaluation, không rò rỉ vào quá trình sinh embedding.</p>
+
+  <h2>7. Chia train/test công bằng</h2>
+  <pre>splitter = StratifiedShuffleSplit(
+    n_splits=30,
+    test_size=0.3,
+    random_state=42,
+)</pre>
+  <p><code>StratifiedShuffleSplit</code> tạo 30 lần chia ngẫu nhiên; mỗi lần dùng 70% node để train và 30% node để test, đồng thời giữ tỷ lệ hai class gần giống nhau ở hai tập.</p>
+  <p>Đối với mỗi embedding file, code gọi cùng splitter và cùng nhãn <code>y</code>. Vì splitter có <code>random_state=42</code>, hai phương pháp được đánh giá trên cùng các index train/test tương ứng.</p>
+  <div class="formula"><strong>Mỗi lần lặp: embedding X → X_train/X_test → classifier.fit → classifier.predict → metrics</strong></div>
+
+  <h2>8. Classifier và metrics</h2>
+  <h3>8.1. Logistic Regression</h3>
+  <pre>clf = LogisticRegression(
+    max_iter=1000,
+    random_state=42
+)
+
+clf.fit(X_train, y_train)
+predictions = clf.predict(X_test)</pre>
+  <p>Logistic Regression là linear probe: nó kiểm tra liệu thông tin phân biệt hai club có thể được tách bằng một biên tuyến tính trên embedding hay không. Classifier không được phép thấy test labels trong lúc fit.</p>
+  <h3>8.2. Accuracy</h3>
+  <div class="formula"><strong>Accuracy = số dự đoán đúng / tổng số mẫu test</strong></div>
+  <p>Accuracy dễ đọc và phù hợp khi hai class không quá lệch. Giá trị càng gần 1 càng tốt.</p>
+  <h3>8.3. F1 score</h3>
+  <div class="formula"><strong>F1 = 2 × Precision × Recall / (Precision + Recall)</strong></div>
+  <p>Code gọi <code>f1_score(y_test, predictions)</code> với thiết lập mặc định của sklearn cho bài toán nhị phân. F1 cân bằng precision và recall, hữu ích khi muốn tránh model chỉ dự đoán tốt một class.</p>
+  <h3>8.4. Mean và standard deviation</h3>
+  <pre>accuracies.append(accuracy_score(y_test, predictions))
+f1_scores.append(f1_score(y_test, predictions))
+
+mean = np.mean(scores)
+std = np.std(scores)</pre>
+  <p>Kết quả cuối là <code>mean ± std</code> trên 30 split:</p>
+  <ul>
+    <li>Mean cao: hiệu năng trung bình tốt.</li>
+    <li>Std thấp: kết quả ổn định hơn khi thay đổi tập train/test.</li>
+    <li>Mean cao nhưng std lớn: có thể phụ thuộc mạnh vào node được chọn vào train set.</li>
+  </ul>
+
+  <h2>9. Kết quả hiện tại</h2>
+  <p>Theo cấu hình hiện tại được ghi trong README của project:</p>
+  <table>
+    <tr><th>Embedding</th><th>Accuracy</th><th>F1</th></tr>
+    <tr><td>Custom</td><td>0.9788 ± 0.0385</td><td>0.9807 ± 0.0352</td></tr>
+    <tr><td>Original</td><td>0.9788 ± 0.0385</td><td>0.9797 ± 0.0369</td></tr>
+  </table>
+  <p>Diễn giải thận trọng: trong lần chạy này, hai phương pháp có Accuracy trung bình bằng nhau; F1 của custom nhỉnh hơn rất nhẹ. Chênh lệch nhỏ và độ lệch chuẩn còn đáng kể so với chênh lệch mean, nên không nên kết luận custom luôn tốt hơn chỉ từ một graph nhỏ.</p>
+  <div class="callout warning"><strong>Không đọc kết quả như benchmark tổng quát:</strong> Karate Club chỉ có 34 node và một loại downstream task. Muốn kết luận rộng hơn cần thử nhiều graph, nhiều seed, nhiều task và có thể nhiều mức epoch/dimension.</div>
+
+  <h2>10. Lệnh chạy end-to-end</h2>
+  <pre># Sinh hai bộ embedding và lưu .npy
+python main.py
+
+# Đọc hai bộ embedding, train/evaluate classifier 30 lần
+python test.py</pre>
+  <p>Output của <code>main.py</code> còn in device, shape embedding và loss history custom. Output của <code>test.py</code> in từng phương pháp theo format:</p>
+  <pre>Custom    | Accuracy: mean +/- std | F1: mean +/- std
+Original  | Accuracy: mean +/- std | F1: mean +/- std</pre>
+
+  <h2>11. Checklist để so sánh đúng</h2>
+  <table>
+    <tr><th>Kiểm tra</th><th>Trạng thái trong project</th></tr>
+    <tr><td>Cùng graph</td><td>Cùng <code>nx.karate_club_graph()</code></td></tr>
+    <tr><td>Cùng dimension</td><td><code>128</code></td></tr>
+    <tr><td>Cùng số walk/node</td><td><code>10</code></td></tr>
+    <tr><td>Cùng p/q và walk length</td><td><code>p=q=1.0</code>, length <code>80</code></td></tr>
+    <tr><td>Cùng context/window</td><td><code>5</code></td></tr>
+    <tr><td>Cùng node order khi xếp rows</td><td>Được kiểm tra qua <code>karate_node_ids.npy</code></td></tr>
+    <tr><td>Cùng train/test splits</td><td><code>StratifiedShuffleSplit(random_state=42)</code></td></tr>
+    <tr><td>Cùng classifier</td><td><code>LogisticRegression(max_iter=1000, random_state=42)</code></td></tr>
+    <tr><td>Cùng metrics</td><td>Accuracy và F1 trên test set</td></tr>
+  </table>
+
+  <h2>12. Kết luận</h2>
+  <p>Evaluation của project có hai tầng:</p>
+  <ol>
+    <li><strong>Training comparison:</strong> custom và package gốc cùng tạo embedding từ Karate Club graph với cấu hình tương đương.</li>
+    <li><strong>Downstream comparison:</strong> mỗi embedding được đưa vào cùng Logistic Regression và đánh giá trên cùng 30 stratified splits.</li>
+  </ol>
+  <p>Do đó, Accuracy/F1 phản ánh mức độ hữu ích của embedding cho phân loại club trong thí nghiệm này, không phải độ giống nhau của hai vector hoặc bằng chứng rằng một implementation đúng tuyệt đối trong mọi graph.</p>
+  <p class="small">Các file sinh ra bởi main.py: <code>karate_embeddings_custom.npy</code>, <code>karate_embeddings_original.npy</code> và <code>karate_node_ids.npy</code>.</p>
+</body>
+</html>

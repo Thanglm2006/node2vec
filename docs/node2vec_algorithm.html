@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <title>Node2Vec trong project node2vec</title>
+  <style>
+    @page { size: A4; margin: 17mm 16mm 18mm; }
+    :root {
+      --ink: #1e293b;
+      --muted: #475569;
+      --line: #cbd5e1;
+      --blue: #0f4c81;
+      --blue-soft: #eaf3fb;
+      --green: #166534;
+      --green-soft: #ecfdf3;
+      --amber: #92400e;
+      --amber-soft: #fff7ed;
+      --code: #f8fafc;
+    }
+    * { box-sizing: border-box; }
+    body {
+      color: var(--ink);
+      font-family: "DejaVu Sans", "Noto Sans", Arial, sans-serif;
+      font-size: 10.2pt;
+      line-height: 1.48;
+      margin: 0;
+    }
+    h1, h2, h3 { color: var(--blue); line-height: 1.2; page-break-after: avoid; }
+    h1 { font-size: 25pt; margin: 0 0 8pt; }
+    h2 { font-size: 16pt; border-bottom: 2px solid var(--blue); padding-bottom: 4pt; margin: 19pt 0 8pt; }
+    h3 { font-size: 12.2pt; margin: 13pt 0 5pt; }
+    p { margin: 5pt 0 7pt; }
+    ul, ol { margin-top: 4pt; padding-left: 21pt; }
+    li { margin: 2pt 0; }
+    code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.7pt; background: #eef2f7; padding: 1pt 3pt; border-radius: 2pt; }
+    pre {
+      background: var(--code);
+      border: 1px solid var(--line);
+      border-left: 4px solid #6b9bc3;
+      padding: 7pt 9pt;
+      white-space: pre-wrap;
+      font: 8.4pt/1.38 "DejaVu Sans Mono", monospace;
+      page-break-inside: avoid;
+      margin: 7pt 0 9pt;
+    }
+    table { border-collapse: collapse; width: 100%; margin: 7pt 0 10pt; page-break-inside: avoid; }
+    th { background: var(--blue); color: white; text-align: left; }
+    th, td { border: 1px solid var(--line); padding: 5pt 6pt; vertical-align: top; }
+    tr:nth-child(even) td { background: #f8fafc; }
+    .cover { min-height: 245mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; }
+    .cover .rule { width: 80pt; border-top: 5px solid var(--blue); margin: 8pt 0 20pt; }
+    .subtitle { color: var(--muted); font-size: 14pt; max-width: 470pt; }
+    .meta { margin-top: 30pt; color: var(--muted); }
+    .toc { background: var(--blue-soft); border: 1px solid #b8d4ec; padding: 10pt 13pt; page-break-inside: avoid; }
+    .toc ol { margin-bottom: 0; }
+    .callout { border-left: 4px solid var(--blue); background: var(--blue-soft); padding: 7pt 10pt; margin: 8pt 0; page-break-inside: avoid; }
+    .warning { border-left-color: #d97706; background: var(--amber-soft); }
+    .success { border-left-color: #16a34a; background: var(--green-soft); }
+    .formula { background: #f1f5f9; border: 1px solid var(--line); text-align: center; padding: 7pt; margin: 7pt 0; font-family: "DejaVu Sans", sans-serif; page-break-inside: avoid; }
+    .flow { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 5pt; margin: 10pt 0; page-break-inside: avoid; }
+    .flow .box { border: 1px solid #8bb3d5; background: var(--blue-soft); padding: 7pt 8pt; text-align: center; min-width: 95pt; }
+    .flow .arrow { color: var(--blue); font-size: 15pt; font-weight: bold; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8pt; page-break-inside: avoid; }
+    .card { border: 1px solid var(--line); padding: 8pt; }
+    .small { color: var(--muted); font-size: 9pt; }
+    .tag { display: inline-block; background: #dbeafe; color: #1e40af; padding: 2pt 5pt; margin-right: 3pt; font-size: 8.5pt; border-radius: 2pt; }
+    .page-break { page-break-before: always; }
+    .avoid-break { page-break-inside: avoid; }
+    .footer-note { color: var(--muted); font-size: 8.5pt; margin-top: 15pt; }
+  </style>
+</head>
+<body>
+
+  <section class="cover">
+    <div class="rule"></div>
+    <h1>Node2Vec trong project<br>node2vec</h1>
+    <p class="subtitle">Từ biased random walk đến embedding bằng Skip-gram với negative sampling</p>
+    <p class="meta">Tài liệu kỹ thuật theo đúng triển khai hiện tại trong:<br>
+      <code>Preprocess.py</code>, <code>Node2vecWalk.py</code>, <code>Node2Vec.py</code> và <code>Skip_gram.py</code></p>
+    <div class="callout success">
+      <strong>Mục tiêu:</strong> biến cấu trúc đồ thị thành một vector có kích thước cố định cho mỗi node. Hai node xuất hiện trong các ngữ cảnh random walk tương tự sẽ có embedding gần nhau hơn.
+    </div>
+  </section>
+
+  <h2>Mục lục và phạm vi</h2>
+  <div class="toc">
+    <ol>
+      <li>Toàn cảnh pipeline và ký hiệu</li>
+      <li>Tiền xử lý chuyển trạng thái và <code>alias_edges</code></li>
+      <li>Biased random walk</li>
+      <li>Tạo positive samples</li>
+      <li>Tạo negative samples</li>
+      <li>Tạo dataset và batch</li>
+      <li>Mô hình Skip-gram</li>
+      <li>Loss, lan truyền ngược và cập nhật tham số</li>
+      <li>Embedding đầu ra, cấu hình hiện tại và các lưu ý triển khai</li>
+    </ol>
+  </div>
+  <p>Tài liệu mô tả hành vi thực tế của code trong repository. Những điểm khác với Node2Vec/word2vec chuẩn được đánh dấu rõ để tránh nhầm giữa thuật toán lý thuyết và implementation hiện tại.</p>
+
+  <h2>1. Toàn cảnh pipeline</h2>
+  <p>Node2Vec xem mỗi random walk như một câu, node như một từ, còn các node gần nhau trong walk như các từ nằm trong cùng một cửa sổ ngữ cảnh.</p>
+  <div class="flow">
+    <div class="box"><strong>Graph G</strong><br>node, edge, weight</div><div class="arrow">→</div>
+    <div class="box"><strong>preprocess</strong><br>p, q, transition probs</div><div class="arrow">→</div>
+    <div class="box"><strong>Random walks</strong><br>các chuỗi node</div><div class="arrow">→</div>
+    <div class="box"><strong>Samples</strong><br>positive + negative</div><div class="arrow">→</div>
+    <div class="box"><strong>Skip-gram</strong><br>embedding</div>
+  </div>
+  <table>
+    <tr><th>Ký hiệu</th><th>Ý nghĩa</th><th>Trong code</th></tr>
+    <tr><td><code>G</code></td><td>Đồ thị đầu vào</td><td>NetworkX graph</td></tr>
+    <tr><td><code>p</code></td><td>Điều chỉnh xác suất quay lại node vừa đi qua</td><td><code>self.p</code></td></tr>
+    <tr><td><code>q</code></td><td>Điều chỉnh xu hướng đi ra xa hoặc khám phá gần</td><td><code>self.q</code></td></tr>
+    <tr><td><code>d</code></td><td>Kích thước embedding</td><td><code>dimension</code></td></tr>
+    <tr><td><code>r</code></td><td>Số walk bắt đầu từ mỗi node</td><td><code>walks_per_node</code></td></tr>
+    <tr><td><code>L</code></td><td>Số bước lặp khi tạo một walk</td><td><code>walk_length</code>; danh sách kết quả dài <code>L + 1</code></td></tr>
+    <tr><td><code>w</code></td><td>Context window một chiều trong implementation này</td><td><code>context_size</code></td></tr>
+    <tr><td><code>K</code></td><td>Số negative node cho mỗi positive pair</td><td><code>num_negative</code></td></tr>
+  </table>
+  <div class="callout">
+    Với cấu hình trong <code>main.py</code>: <code>d=128</code>, <code>r=10</code>, <code>L=80</code>, <code>w=5</code>, <code>K=5</code>, <code>p=q=1</code>, <code>batch_size=256</code>, <code>epochs=1</code>, <code>lr=0.001</code>.
+  </div>
+
+  <h2>2. Tiền xử lý chuyển trạng thái</h2>
+  <h3>2.1. Vì sao cần trạng thái gồm hai node?</h3>
+  <p>Xác suất bước kế tiếp không chỉ phụ thuộc vào node hiện tại <code>v</code>. Nó còn phụ thuộc vào node vừa đi qua <code>t</code>. Vì vậy trạng thái được viết là cặp <code>(t, v)</code>:</p>
+  <pre>t  →  v  →  x
+previous  current  candidate</pre>
+  <p>Biết <code>t</code> giúp phân biệt ba trường hợp đối với ứng viên <code>x</code>: quay lại <code>t</code>, đi tới vùng lân cận của <code>t</code>, hoặc đi ra vùng xa hơn.</p>
+
+  <h3>2.2. Dữ liệu được chuẩn bị</h3>
+  <pre>neighbors = {
+    v: list(G.neighbors(v))
+    for v in G.nodes()
+}
+
+neighbor_sets = {
+    v: set(neighbors[v])
+    for v in G.nodes()
+}</pre>
+  <p><code>neighbors[v]</code> giữ thứ tự các node kề với <code>v</code>. <code>neighbor_sets[v]</code> giúp kiểm tra <code>x in N(t)</code> nhanh hơn khi phân loại ứng viên.</p>
+
+  <h3>2.3. Công thức trọng số Node2Vec</h3>
+  <p>Với mỗi cạnh vô hướng <code>(u,v)</code>, code tạo hai trạng thái có hướng: <code>(u,v)</code> và <code>(v,u)</code>. Với trạng thái <code>(t, curr)</code>, xét mọi <code>x ∈ N(curr)</code>:</p>
+  <div class="formula"><strong>α(t, x) = 1/p</strong> nếu x = t;&nbsp;&nbsp; <strong>1</strong> nếu x ∈ N(t);&nbsp;&nbsp; <strong>1/q</strong> nếu còn lại</div>
+  <p>Trọng số chuyển tiếp là:</p>
+  <div class="formula"><strong>π<sub>curr,x</sub> = w(curr,x) × α(t,x)</strong></div>
+  <p>Sau đó chuẩn hóa:</p>
+  <div class="formula"><strong>P(x | t, curr) = π<sub>curr,x</sub> / Σ<sub>y∈N(curr)</sub> π<sub>curr,y</sub></strong></div>
+  <table>
+    <tr><th>Trường hợp</th><th>Hệ số</th><th>Ý nghĩa</th></tr>
+    <tr><td><code>x == t</code></td><td><code>1/p</code></td><td>Quay lại node trước đó. <code>p</code> lớn làm giảm xác suất quay lại; <code>p</code> nhỏ làm tăng.</td></tr>
+    <tr><td><code>x in N(t)</code></td><td><code>1</code></td><td>Đi tới node gần node trước đó, vẫn ở vùng khám phá hiện tại.</td></tr>
+    <tr><td>Trường hợp còn lại</td><td><code>1/q</code></td><td>Đi ra xa vùng hiện tại. <code>q</code> nhỏ khuyến khích exploration; <code>q</code> lớn khuyến khích BFS-like.</td></tr>
+  </table>
+
+  <h3>2.4. <code>alias_edges</code> trong implementation này</h3>
+  <pre>alias_edges[(t, curr)] = {
+    "candidates": candidates,
+    "probs": probs
+}</pre>
+  <p>Tên biến là <code>alias_edges</code>, nhưng code hiện tại chưa xây dựng bảng Vose alias gồm hai mảng <code>J</code> và <code>q</code>. Nó thực hiện cách đơn giản hơn: tính trước danh sách ứng viên và vector xác suất chuẩn hóa, rồi dùng trực tiếp với <code>np.random.choice(..., p=probs)</code>. Kết quả phân phối là đúng, nhưng tên “alias” ở đây mang nghĩa cache transition probabilities.</p>
+  <div class="callout warning"><strong>Điều kiện:</strong> <code>preprocess_transition_probs</code> đang tạo hai hướng cho từng cạnh và phù hợp nhất với đồ thị vô hướng. Với node cô lập, random walk sẽ không có ứng viên và không thể tiếp tục.</div>
+
+  <h2>3. Tạo một biased random walk</h2>
+  <h3>3.1. Bước đầu tiên</h3>
+  <p>Hàm <code>random_walk(G, start, walk_length, alias_edges)</code> bắt đầu bằng:</p>
+  <pre>walk = [start]</pre>
+  <p>Ở bước đầu tiên, chưa có node trước đó nên không thể dùng trạng thái <code>(t, curr)</code>. Code dùng trọng số cạnh gốc:</p>
+  <pre>candidates = list(G.neighbors(current))
+weights = [G[current][x].get("weight", 1.0) for x in candidates]
+probs = weights / sum(weights)
+next_node = np.random.choice(candidates, p=probs)</pre>
+  <p>Nếu cạnh không có thuộc tính <code>weight</code>, trọng số mặc định là <code>1.0</code>.</p>
+
+  <h3>3.2. Các bước tiếp theo</h3>
+  <pre>previous = walk[-2]
+current = walk[-1]
+trans = alias_edges[(previous, current)]
+candidates = list(trans["candidates"])
+probs = trans["probs"]
+next_node = np.random.choice(candidates, p=probs)
+walk.append(next_node)</pre>
+  <p>Mỗi bước dùng hai node cuối hiện có để tra đúng phân phối đã tiền tính. Vì vậy Node2Vec là random walk bậc hai: xác suất bước kế tiếp phụ thuộc vào node hiện tại và node trước đó.</p>
+
+  <h3>3.3. Ví dụ</h3>
+  <p>Giả sử tại trạng thái <code>A → B</code>, các ứng viên của <code>B</code> là <code>A, C, D</code>. Nếu <code>A</code> là node trước, <code>C</code> kề với <code>A</code>, còn <code>D</code> không kề với <code>A</code>, thì:</p>
+  <pre>base weights       : w(B,A), w(B,C), w(B,D)
+alpha              : 1/p,   1,      1/q
+modified weights   : w(B,A)/p, w(B,C), w(B,D)/q
+probabilities      : modified weights / their sum</pre>
+  <p>Node được chọn ngẫu nhiên theo vector xác suất này và được append vào walk.</p>
+
+  <h3>3.4. Số lượng walk và độ dài</h3>
+  <pre>for i in range(self.walks_per_node):
+    for node in self.G.nodes():
+        walks.append(random_walk(...))</pre>
+  <p>Nếu đồ thị có <code>|V|</code> node thì tổng số walk là <code>|V| × walks_per_node</code>. Do code khởi tạo walk bằng node bắt đầu rồi lặp <code>range(walk_length)</code>, kết quả có <code>walk_length + 1</code> node. Đây là một chi tiết khác với cách một số thư viện gọi <code>walk_length</code> là tổng số node.</p>
+
+  <h2>4. Tạo positive samples</h2>
+  <p>Hàm <code>positive_samples</code> biến mỗi walk thành các cặp Skip-gram. Trong implementation hiện tại, mỗi vị trí lần lượt làm <code>source</code>, và chỉ lấy tối đa <code>context_size</code> node ở phía sau.</p>
+  <pre>for walk in walks:
+    for i, source in enumerate(walk):
+        end = min(i + context_size + 1, len(walk))
+        contexts = walk[i + 1:end]
+        for context in contexts:
+            positive_samples.append((source, context))</pre>
+  <p><code>enumerate(walk)</code> sinh từng cặp <code>(i, walk[i])</code>. Vì vậy <code>i</code> là vị trí và <code>source</code> là node ở vị trí đó.</p>
+  <h3>Ví dụ với <code>walk = [A, B, C, D]</code>, <code>context_size = 2</code></h3>
+  <table>
+    <tr><th>i</th><th>source</th><th>contexts</th><th>positive pairs</th></tr>
+    <tr><td>0</td><td>A</td><td>[B, C]</td><td>(A,B), (A,C)</td></tr>
+    <tr><td>1</td><td>B</td><td>[C, D]</td><td>(B,C), (B,D)</td></tr>
+    <tr><td>2</td><td>C</td><td>[D]</td><td>(C,D)</td></tr>
+    <tr><td>3</td><td>D</td><td>[]</td><td>không có</td></tr>
+  </table>
+  <div class="callout warning"><strong>Phạm vi hiện tại:</strong> code chỉ lấy context phía sau. Skip-gram thường lấy cửa sổ hai phía, nên nếu muốn đối xứng cần duyệt từ <code>max(0, i-w)</code> tới <code>min(len(walk), i+w+1)</code> và bỏ chính vị trí <code>i</code>.</div>
+  <p>Các cặp lặp lại không bị loại. Đây thường là chủ ý: tần suất đồng xuất hiện trong các walk được giữ lại như một tín hiệu huấn luyện.</p>
+
+  <h2>5. Tạo negative samples</h2>
+  <h3>5.1. Ý tưởng</h3>
+  <p>Với positive pair <code>(source, positive_context)</code>, ta lấy thêm <code>K</code> node ngẫu nhiên làm negative context. Mục tiêu của mô hình là tăng điểm cho positive pair và giảm điểm cho các negative pair.</p>
+  <pre>(source, positive_context) → label 1
+(source, negative_1)         → label 0
+(source, negative_2)         → label 0
+...
+(source, negative_K)         → label 0</pre>
+
+  <h3>5.2. Phân phối noise</h3>
+  <pre>node_counts = Counter(
+    node for walk in walks for node in walk
+)
+
+frequencies = [node_counts[node] ** 0.75 for node in nodes]
+probs = frequencies / frequencies.sum()</pre>
+  <p>Node xuất hiện nhiều trong corpus có xác suất được lấy cao hơn, nhưng lũy thừa <code>0.75</code> làm phân phối bớt lệch so với tần suất gốc. Đây là phân phối noise kinh điển của negative sampling.</p>
+
+  <h3>5.3. Loại các node không hợp lệ và lấy mẫu</h3>
+  <pre>valid_mask = [
+    node != source and node != positive_context
+    for node in nodes
+]
+
+candidates = nodes[valid_mask]
+candidate_probs = probs[valid_mask]
+candidate_probs /= candidate_probs.sum()
+
+negatives = np.random.choice(
+    candidates,
+    size=num_negative,
+    replace=True,
+    p=candidate_probs
+)</pre>
+  <p>Source và positive context hiện tại bị loại. <code>replace=True</code> cho phép một node negative xuất hiện nhiều lần trong cùng một nhóm, ví dụ <code>[C, D, C, E, C]</code>. Vì vậy số negative có thể đếm đúng là <code>K</code> nhưng không nhất thiết có <code>K</code> node khác nhau.</p>
+  <div class="callout">Code chỉ loại positive context của cặp đang xét. Một node vẫn có thể là context dương của cùng source trong một cặp khác. Đây là negative đối với cặp hiện tại, không phải cam kết rằng hai node hoàn toàn không liên quan trong toàn bộ graph.</div>
+
+  <h2>6. Tạo dataset và batch</h2>
+  <h3>6.1. Ánh xạ node sang integer ID</h3>
+  <pre>node_ids = list(G.nodes())
+node2id = {node: idx for idx, node in enumerate(node_ids)}</pre>
+  <p><code>nn.Embedding</code> cần chỉ số nguyên từ <code>0</code> tới <code>|V|-1</code>. Mapping giữ đúng thứ tự <code>G.nodes()</code>, và thứ tự này cũng là thứ tự các dòng embedding khi trả kết quả.</p>
+
+  <h3>6.2. Các tensor</h3>
+  <p>Gọi <code>N</code> là số positive pairs và <code>K</code> là số negative cho mỗi pair:</p>
+  <table>
+    <tr><th>Tensor</th><th>Shape</th><th>Nội dung</th></tr>
+    <tr><td><code>source_ids</code></td><td><code>(N,)</code></td><td>ID source của từng positive pair</td></tr>
+    <tr><td><code>positive_context_ids</code></td><td><code>(N,)</code></td><td>ID context dương tương ứng</td></tr>
+    <tr><td><code>negative_context_ids</code></td><td><code>(N,K)</code></td><td>K ID negative được xếp theo từng positive pair</td></tr>
+  </table>
+  <p>Negative pairs được tạo thành một list phẳng theo đúng thứ tự mỗi positive pair. Trong <code>fit()</code>, đoạn slice:</p>
+  <pre>negative_pairs[i*K : (i+1)*K]</pre>
+  <p>đưa chúng về hàng thứ <code>i</code> của tensor <code>(N,K)</code>.</p>
+
+  <h3>6.3. TensorDataset và DataLoader</h3>
+  <pre>dataset = TensorDataset(
+    source_ids,
+    positive_context_ids,
+    negative_context_ids,
+)
+train_loader = DataLoader(
+    dataset,
+    batch_size=batch_size,
+    shuffle=True,
+    drop_last=False,
+)</pre>
+  <p>Mỗi item của dataset là một bộ ba:</p>
+  <pre>(source_id, positive_context_id, negative_context_ids[K])</pre>
+  <p><code>DataLoader</code> trộn thứ tự các item ở mỗi epoch và gom thành batch. <code>drop_last=False</code> giữ lại batch cuối dù nhỏ hơn <code>batch_size</code>.</p>
+
+  <h2>7. Mô hình Skip-gram</h2>
+  <h3>7.1. Hai bảng embedding</h3>
+  <pre>self.source_embedding = nn.Embedding(num_nodes, embedding_dim)
+self.context_embedding = nn.Embedding(num_nodes, embedding_dim)</pre>
+  <p>Với <code>|V|</code> node và kích thước <code>d</code>, mỗi bảng có shape <code>(|V|, d)</code>:</p>
+  <ul>
+    <li><code>U</code>: source embeddings, một vector <code>u_i</code> cho mỗi node.</li>
+    <li><code>V</code>: context embeddings, một vector <code>v_j</code> cho mỗi node.</li>
+  </ul>
+  <p>Khởi tạo trong code:</p>
+  <pre>source_embedding ~ Uniform(-0.5/d, 0.5/d)
+context_embedding = 0</pre>
+  <p>Hai bảng tách biệt giúp mô hình biểu diễn vai trò source và context khác nhau trong quá trình tối ưu.</p>
+
+  <h3>7.2. Forward bằng dot product</h3>
+  <pre>source_vectors = source_embedding(sources)
+context_vectors = context_embedding(contexts)
+logits = (source_vectors * context_vectors).sum(dim=-1)</pre>
+  <p>Với một cặp <code>(i,j)</code>:</p>
+  <div class="formula"><strong>s(i,j) = u<sub>i</sub><sup>T</sup> v<sub>j</sub></strong></div>
+  <p>Dot product càng lớn thì cặp source-context càng được mô hình xem là phù hợp. Với positive batch, output có shape <code>(B,)</code>. Với negative batch, code truyền <code>sources.unsqueeze(1)</code> để source có shape <code>(B,1)</code>, broadcast với context shape <code>(B,K)</code>, nên output có shape <code>(B,K)</code>.</p>
+
+  <h2>8. Loss với negative sampling</h2>
+  <p>Gọi <code>s+</code> là logit của positive context và <code>s<sub>k</sub>-</code> là logit của negative thứ <code>k</code>. Code dùng:</p>
+  <pre>positive_loss = -F.logsigmoid(positive_logits)
+negative_loss = -F.logsigmoid(-negative_logits).sum(dim=1)
+loss = (positive_loss + negative_loss).mean()</pre>
+  <div class="formula"><strong>L = -log σ(s+) - Σ<sub>k=1..K</sub> log σ(-s<sub>k</sub>-)</strong></div>
+  <p>Trong đó <code>σ(x)=1/(1+e<sup>-x</sup>)</code> là sigmoid.</p>
+  <table>
+    <tr><th>Logit</th><th>Mục tiêu</th><th>Loss đạt thấp khi</th></tr>
+    <tr><td>Positive <code>s+</code></td><td><code>σ(s+) → 1</code></td><td><code>s+</code> lớn, source và context dương có dot product cao</td></tr>
+    <tr><td>Negative <code>s-</code></td><td><code>σ(s-) → 0</code></td><td><code>s-</code> âm hoặc đủ nhỏ</td></tr>
+  </table>
+  <p>Đây là binary logistic objective: positive pair được coi là nhãn 1, negative pair là nhãn 0. So với softmax toàn bộ vocabulary, negative sampling chỉ tính trên một số ít node negative nên rẻ hơn khi graph lớn.</p>
+
+  <h2>9. Lan truyền ngược và cập nhật</h2>
+  <h3>9.1. Vòng lặp huấn luyện</h3>
+  <pre>for sources, positive_contexts, negative_contexts in train_loader:
+    sources = sources.to(device)
+    positive_contexts = positive_contexts.to(device)
+    negative_contexts = negative_contexts.to(device)
+
+    optimizer.zero_grad()
+    positive_logits = model(sources, positive_contexts)
+    negative_logits = model(sources.unsqueeze(1), negative_contexts)
+    loss = criterion(positive_logits, negative_logits)
+    loss.backward()
+    optimizer.step()</pre>
+  <ol>
+    <li><strong>Forward:</strong> tra vector từ hai bảng embedding và tính dot product.</li>
+    <li><strong>Loss:</strong> so sánh positive score với negative scores.</li>
+    <li><strong>Backward:</strong> autograd tính gradient của loss theo các embedding đã được tra.</li>
+    <li><strong>Step:</strong> Adam cập nhật tham số bằng learning rate <code>lr</code>.</li>
+    <li><strong>Zero:</strong> xóa gradient cũ trước batch tiếp theo.</li>
+  </ol>
+
+  <h3>9.2. Gradient của một positive pair</h3>
+  <p>Với <code>s+ = u·v+</code> và <code>s<sub>k</sub>- = u·v<sub>k</sub>-</code>, đạo hàm theo các logit là:</p>
+  <div class="formula"><strong>∂L/∂s+ = σ(s+) − 1</strong>&nbsp;&nbsp;&nbsp;&nbsp; <strong>∂L/∂s<sub>k</sub>- = σ(s<sub>k</sub>-)</strong></div>
+  <p>Suy ra gradient quan trọng:</p>
+  <div class="formula"><strong>∂L/∂u = (σ(s+)−1)v+ + Σ<sub>k</sub> σ(s<sub>k</sub>-)v<sub>k</sub>-</strong></div>
+  <div class="formula"><strong>∂L/∂v+ = (σ(s+)−1)u</strong>&nbsp;&nbsp;&nbsp;&nbsp; <strong>∂L/∂v<sub>k</sub>- = σ(s<sub>k</sub>-)u</strong></div>
+  <p>Trực giác:</p>
+  <ul>
+    <li>Source vector được kéo gần context dương.</li>
+    <li>Source vector bị đẩy xa các context âm.</li>
+    <li>Chỉ các row embedding xuất hiện trong batch nhận gradient trực tiếp.</li>
+  </ul>
+
+  <h3>9.3. Adam cập nhật tham số</h3>
+  <p>Code dùng:</p>
+  <pre>optimizer = torch.optim.Adam(model.parameters(), lr=lr)</pre>
+  <p>Adam giữ các thống kê chuyển động của gradient theo từng tham số, kết hợp momentum và chuẩn hóa theo độ lớn gradient. Với mỗi row embedding có gradient <code>g</code>, Adam tạo bước cập nhật thích nghi thay vì dùng một bước cố định đơn giản. Sau <code>optimizer.step()</code>, hai bảng <code>source_embedding.weight</code> và <code>context_embedding.weight</code> đều thay đổi.</p>
+
+  <h2>10. Embedding đầu ra</h2>
+  <pre>def get_embeddings(self):
+    return self.source_embedding.weight</pre>
+  <p><code>fit()</code> trả:</p>
+  <pre>self.model.get_embeddings().detach().cpu().numpy()</pre>
+  <p>Vì vậy output có shape:</p>
+  <div class="formula"><strong>(number_of_nodes, embedding_dimension)</strong></div>
+  <p>Dòng thứ <code>i</code> tương ứng với node ở vị trí thứ <code>i</code> trong <code>list(G.nodes())</code>. Trong project, <code>karate_node_ids.npy</code> được lưu để bảo toàn mapping này khi đánh giá.</p>
+  <div class="callout success"><strong>Ý nghĩa cuối cùng:</strong> mỗi node được biểu diễn bằng vector <code>u_i</code>. Các node có hành vi đồng xuất hiện tương tự trong các biased walks có xu hướng nhận vector gần nhau, nên có thể dùng embedding cho phân loại node, clustering, similarity hoặc visualization.</div>
+  <p>Code chỉ trả về source embedding. Một số biến thể word2vec dùng <code>(source + context) / 2</code> hoặc trả context embedding; đó không phải hành vi hiện tại của project.</p>
+
+  <h2>11. Pseudocode toàn bộ thuật toán</h2>
+  <pre>Input: graph G, p, q, dimension d, walks_per_node r,
+       walk_length L, context_size w, negatives K
+
+1. Preprocess:
+   for each undirected edge (u, v):
+       create transition state (u, v) and (v, u)
+       for each candidate x in neighbors[current]:
+           alpha = 1/p if x == previous
+                   1   if x in neighbors[previous]
+                   1/q otherwise
+           prob[x] = edge_weight(current, x) * alpha
+       normalize prob
+
+2. Generate walks:
+   repeat r times:
+       for each node s in G:
+           walk = [s]
+           repeat L times:
+               sample next node from weighted transition distribution
+               append next node
+           save walk
+
+3. Positive samples:
+   for each walk and each position i:
+       source = walk[i]
+       for j = i+1 ... min(i+w, len(walk)-1):
+           save (source, walk[j])
+
+4. Negative samples:
+   count node frequencies in all walks
+   make noise probabilities count^0.75 / sum(count^0.75)
+   for each positive pair (s, c):
+       remove s and c from candidates
+       draw K negative contexts
+
+5. Dataset:
+   map node labels to integer IDs
+   make tensors source[N], positive[N], negative[N,K]
+   create TensorDataset and shuffled DataLoader
+
+6. Train Skip-gram:
+   score positive and negative dot products
+   compute negative-sampling loss
+   backward()
+   Adam step()
+
+7. Output:
+   return source_embedding.weight as node embeddings.</pre>
+
+  <h2>12. Những điểm cần nhớ khi đọc implementation</h2>
+  <table>
+    <tr><th>Điểm</th><th>Hành vi hiện tại</th><th>Hệ quả</th></tr>
+    <tr><td><code>alias_edges</code></td><td>Cache candidates và probabilities; chưa phải Vose alias table</td><td>Đúng phân phối nhưng chưa tối ưu sampling kiểu alias</td></tr>
+    <tr><td>Độ dài walk</td><td><code>walk_length</code> vòng lặp sau node bắt đầu</td><td>Danh sách dài <code>walk_length + 1</code></td></tr>
+    <tr><td>Positive context</td><td>Chỉ lấy node ở phía sau source</td><td>Cặp có hướng và ít hơn cửa sổ hai phía</td></tr>
+    <tr><td>Sample trùng</td><td>Không deduplicate</td><td>Tần suất đồng xuất hiện được giữ lại</td></tr>
+    <tr><td>Negative sampling</td><td>Lấy với <code>replace=True</code></td><td>Negative trong cùng nhóm có thể lặp</td></tr>
+    <tr><td>Negative “thật sự âm”</td><td>Chỉ loại source và positive context hiện tại</td><td>Có thể chọn node là positive context ở pair khác</td></tr>
+    <tr><td>Embedding trả về</td><td><code>source_embedding.weight</code></td><td>Không phải context table và không phải trung bình hai table</td></tr>
+    <tr><td>Đánh giá</td><td>Logistic regression trên node labels</td><td>Kiểm tra embedding phục vụ downstream classification</td></tr>
+  </table>
+
+  <h2>13. Kết luận</h2>
+  <p>Thuật toán trong project tạo embedding theo chuỗi nguyên nhân sau:</p>
+  <div class="flow">
+    <div class="box">p, q</div><div class="arrow">→</div>
+    <div class="box">transition probabilities</div><div class="arrow">→</div>
+    <div class="box">biased walks</div><div class="arrow">→</div>
+    <div class="box">co-occurrence pairs</div><div class="arrow">→</div>
+    <div class="box">positive vs negative scores</div><div class="arrow">→</div>
+    <div class="box">updated vectors</div>
+  </div>
+  <p>Random walk quyết định node nào được xem là có ngữ cảnh tương tự. Skip-gram biến các quan sát đó thành bài toán phân loại nhị phân bằng dot product và negative sampling. Backpropagation cùng Adam lặp lại quá trình này cho đến khi source vectors mã hóa được cấu trúc mà các walk đã quan sát.</p>
+  <p class="footer-note">Tài liệu được sinh theo mã nguồn hiện tại của repository. Khi thay đổi cách lấy context, số bước walk, cách sample negative hoặc cách lấy embedding cuối, các phần tương ứng trong tài liệu cần được cập nhật.</p>
+</body>
+</html>
