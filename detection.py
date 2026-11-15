@@ -77,7 +77,7 @@ def main():
     gml_lines = gml.splitlines()
     if gml_lines and gml_lines[0].startswith("Creator "):
         gml_lines = gml_lines[1:]
-    G = nx.parse_gml(gml_lines)
+    G = nx.parse_gml(gml_lines, label=None)
     # G= nx.karate_club_graph()  # small graph for testing
     print(f"Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
