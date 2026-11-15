@@ -201,11 +201,14 @@ class Node2Vec:
                 idx = perm[start:start + batch_size]
                 s, p, n = sources[idx], pos_contexts[idx], negatives[idx]
 
-                optimizer.zero_grad()
-
                 # --- Skip-gram + Negative Sampling (mỗi batch) ---
-                l_ns = criterion(model(s, p), model(s.unsqueeze(1), n))
-                loss = l_ns
+                if embeddings_frozen:
+                    with torch.no_grad():
+                        l_ns = criterion(model(s, p), model(s.unsqueeze(1), n))
+                    loss = None
+                else:
+                    l_ns = criterion(model(s, p), model(s.unsqueeze(1), n))
+                    loss = l_ns
 
                 # --- Modularity (chỉ mỗi mod_every batch) ---
                 if use_modularity and step % mod_every == 0:
@@ -219,11 +222,16 @@ class Node2Vec:
 
                     q = soft_modularity(S, src, dst, w, degree, edge_idx)
                     l_col = collapse_regularization(S)
-                    loss = loss - lam * q + beta * l_col
+                    if loss is None:
+                        loss = -lam * q + beta * l_col
+                    else:
+                        loss = loss - lam * q + beta * l_col
                     last_q = q.item()
 
-                loss.backward()
-                optimizer.step()
+                if loss is not None:
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
 
                 bs = s.size(0)
                 total_ns += l_ns.item() * bs
