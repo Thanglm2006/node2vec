@@ -45,23 +45,40 @@ def main():
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-
+    def set_seed(seed=42):
+        random.seed(seed)
+        np.random.seed(seed)
+    
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    
+        torch.use_deterministic_algorithms(True)
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+    
+    
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+        set_seed(42)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cpu"
     print(f"Device: {device}")
 
-    # data_dir = Path(__file__).resolve().parent / "Data" / "football"
-    # txt = (data_dir / "football.txt").read_text(encoding="utf-8")
-    # gml = (data_dir / "football.gml").read_text(encoding="utf-8")
+    data_dir = Path(__file__).resolve().parent / "Data" / "power"
+    txt = (data_dir / "power.txt").read_text(encoding="utf-8")
+    gml = (data_dir / "power.gml").read_text(encoding="utf-8")
 
-    # # The dataset has a metadata line before the actual GML graph.
-    # gml_lines = gml.splitlines()
-    # if gml_lines and gml_lines[0].startswith("Creator "):
-    #     gml_lines = gml_lines[1:]
-    # G = nx.parse_gml(gml_lines)
-    G= nx.karate_club_graph()  # small graph for testing
+    # The dataset has a metadata line before the actual GML graph.
+    gml_lines = gml.splitlines()
+    if gml_lines and gml_lines[0].startswith("Creator "):
+        gml_lines = gml_lines[1:]
+    G = nx.parse_gml(gml_lines)
+    # G= nx.karate_club_graph()  # small graph for testing
     print(f"Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
     # 2. Node2Vec configuration
@@ -76,10 +93,10 @@ def main():
     lr = 0.0005
 
     n2v = Node2Vec(G, p=1.0, q=1.0, dimension=128, walks_per_node=10,
-                walk_length=80, context_size=5, num_communities=G.number_of_nodes())
+                walk_length=80, context_size=10, num_communities=G.number_of_nodes())
 
     print("\nStarting custom training...")
-    emb = n2v.fit(epochs=20, lam=1.5, beta=0.1,batch_size=256, lr=0.0005,
+    emb = n2v.fit(epochs=24, lam=1.0, beta=0.1,batch_size=512, lr=0.0001,
                 mod_every=5, edge_batch=50_000, warmup_epochs=4, device=device)
     communities = n2v.get_communities()   # {node: community_id}
 
