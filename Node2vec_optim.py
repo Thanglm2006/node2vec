@@ -118,6 +118,7 @@ class Node2Vec:
         mod_every=20,        # chỉ tính modularity mỗi mod_every batch
         edge_batch=None,     # số cạnh lấy mẫu mỗi lần tính Q (None = toàn bộ)
         warmup_epochs=1,     # các epoch đầu chỉ train Skip-gram (lam = 0)
+        freeze_embeddings_after=None,  # freeze embedding tables after N epochs
         device=None,
     ):
         """L = L_NS - lam * Q_soft + beta * L_collapse
@@ -151,6 +152,7 @@ class Node2Vec:
             epochs=epochs, batch_size=batch_size, lr=lr,
             lam=lam, beta=beta, mod_every=mod_every,
             edge_batch=edge_batch, warmup_epochs=warmup_epochs,
+            freeze_embeddings_after=freeze_embeddings_after,
             device=device,
         )
         return self.model.get_embeddings().detach().cpu().numpy()
@@ -160,7 +162,7 @@ class Node2Vec:
     # ------------------------------------------------------------------
     def train_joint(self, sources, pos_contexts, negatives, graph, epochs,
                     batch_size, lr, lam, beta, mod_every, edge_batch,
-                    warmup_epochs, device):
+                    warmup_epochs, freeze_embeddings_after, device):
         src, dst, w, degree = graph
         model, head = self.model, self.head
         criterion = NegativeSamplingLoss()
@@ -171,8 +173,18 @@ class Node2Vec:
         num_pairs = sources.size(0)
         num_edges = src.numel()
         history = []
+        embeddings_frozen = False
 
         for epoch in range(epochs):
+            if (
+                freeze_embeddings_after is not None
+                and not embeddings_frozen
+                and epoch >= freeze_embeddings_after
+            ):
+                model.source_embedding.weight.requires_grad_(False)
+                model.context_embedding.weight.requires_grad_(False)
+                embeddings_frozen = True
+
             model.train()
             head.train()
             use_modularity = epoch >= warmup_epochs and lam > 0
