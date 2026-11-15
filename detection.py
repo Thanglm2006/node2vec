@@ -94,18 +94,18 @@ def main():
     freeze_embeddings_after = 5
 
     n2v = Node2Vec(G, p=1.0, q=1.0, dimension=512, walks_per_node=10,
-                walk_length=20, context_size=5, num_communities=G.number_of_nodes())
+                walk_length=20, context_size=6, num_communities=G.number_of_nodes())
 
     print("\nStarting custom training...")
-    emb = n2v.fit(epochs=24, lam=1.0, beta=0.1,batch_size=1024, lr=0.0001,
+    emb = n2v.fit(epochs=10, lam=4.0, beta=0.1,batch_size=4096, lr=0.001,
                 mod_every=5, edge_batch=50_000, warmup_epochs=4,
                 freeze_embeddings_after=freeze_embeddings_after, device=device)
     communities = n2v.get_communities()   # {node: community_id}
 
     print("\nCustom training finished.")
     print(f"Embedding shape: {emb.shape}")
-    print(f"Communities: {communities.values()}")
-    print(f"Community counts: {np.bincount(list(communities.values()))}")
+    # print(f"Communities: {communities.values()}")
+    # print(f"Community counts: {np.bincount(list(communities.values()))}")
 
 
     groups = defaultdict(set)
